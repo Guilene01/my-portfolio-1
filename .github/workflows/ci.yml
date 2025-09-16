@@ -48,3 +48,18 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:${{ github.run_number }}
           docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
           docker push ${{ env.IMAGE_URI }}:latest
+  deploy:
+    needs: trivy-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to Server and deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          script: |
+            IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
+            docker pull $IMAGE_URI:${{ github.run_number }}
+            docker rm -f resume || true
+            docker run -d --name resume -p 8080:5001 $IMAGE_URI:${{ github.run_number }}
