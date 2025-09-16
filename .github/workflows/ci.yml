@@ -2,18 +2,16 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build-and-scan:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      id-token: write       # Needed for OIDC
       contents: read
-    outputs:
-      image_uri: ${{ steps.build-image.outputs.image_uri }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,11 +27,9 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build Docker Image
-        id: build-image
         run: |
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
           docker build -t $IMAGE_URI:${{ github.run_number }} .
 
       - name: Scan local image with Trivy
@@ -63,7 +59,21 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
           script: |
-            IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
-            docker pull $IMAGE_URI:${{ github.run_number }}
+            # Reconstruct ECR URI on remote server
+            AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+            AWS_REGION=${{ vars.AWS_REGION }}
+            IMAGE_NAME="portfolio"
+            IMAGE_TAG=${GITHUB_RUN_NUMBER}
+            IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$IMAGE_NAME"
+
+            # Login to ECR on remote server
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+            # Pull the Docker image
+            docker pull $IMAGE_URI:$IMAGE_TAG
+
+            # Stop/remove old container if exists
             docker rm -f resume || true
-            docker run -d --name resume -p 8080:5001 $IMAGE_URI:${{ github.run_number }}
+
+            # Run the new container
+            docker run -d --name resume -p 8080:5001 $IMAGE_URI:$IMAGE_TAG
