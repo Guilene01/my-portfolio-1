@@ -43,8 +43,7 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true  
-          severity : 'CRITICAL,HIGH'     
-
+          
       - name: Push Docker Image
         run: |
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
