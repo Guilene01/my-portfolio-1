@@ -32,3 +32,16 @@ jobs:
           docker push $IMAGE_URI:${{ github.run_number }}
           docker tag $IMAGE_URI:${{ github.run_number }} $IMAGE_URI:latest
           docker push $IMAGE_URI:latest  
+  trivy-scan:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ steps.login-ecr.outputs.registry }}/portfolio:${{ github.run_number }}
+          format: 'table'
+          exit-code: '0'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true        
