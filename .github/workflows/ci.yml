@@ -49,7 +49,7 @@ jobs:
           docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
           docker push ${{ env.IMAGE_URI }}:latest
   deploy:
-    needs: trivy-scan
+    needs: build-and-scan
     runs-on: ubuntu-latest
     steps:
       - name: SSH to Server and deploy
