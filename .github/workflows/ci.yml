@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  build-and-scan:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -25,26 +25,26 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
+
       - name: Build Docker Image
+        id: build-image
         run: |
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
           docker build -t $IMAGE_URI:${{ github.run_number }} .
-           
-  trivy-scan:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Run Trivy vulnerability scanner
+
+      - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: ${{ steps.login-ecr.outputs.registry }}/portfolio:${{ github.run_number }}
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.run_number }}
           format: 'table'
           exit-code: '0'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true  
-          
-      - name: Push Docker Image
+          ignore-unfixed: true
+
+      - name: Push Docker Image to ECR
         run: |
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
-          docker push $IMAGE_URI:${{ github.run_number }}
+          docker push ${{ env.IMAGE_URI }}:${{ github.run_number }}
+          docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
+          docker push ${{ env.IMAGE_URI }}:latest
