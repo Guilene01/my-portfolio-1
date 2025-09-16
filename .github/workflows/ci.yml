@@ -25,13 +25,11 @@ jobs:
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-      - name: Build and Push Docker Image
+      - name: Build Docker Image
         run: |
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
           docker build -t $IMAGE_URI:${{ github.run_number }} .
-          docker push $IMAGE_URI:${{ github.run_number }}
-          docker tag $IMAGE_URI:${{ github.run_number }} $IMAGE_URI:latest
-          docker push $IMAGE_URI:latest  
+           
   trivy-scan:
     needs: build
     runs-on: ubuntu-latest
@@ -44,4 +42,10 @@ jobs:
           exit-code: '0'
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true        
+          ignore-unfixed: true  
+          severity : 'CRITICAL,HIGH'     
+
+      - name: Push Docker Image
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
+          docker push $IMAGE_URI:${{ github.run_number }}
