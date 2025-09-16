@@ -49,23 +49,42 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:latest
 
   deploy:
-    needs: build-and-scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: SSH to Server and deploy
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.KEY }}
-          envs: |
-            AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
-            AWS_REGION=${{ vars.AWS_REGION }}
-            IMAGE_TAG=${{ github.run_number }}
-          script: |
-            IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/portfolio"
-            echo "Using image: $IMAGE_URI:$IMAGE_TAG"
-            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-            docker pull "$IMAGE_URI:$IMAGE_TAG"
-            docker rm -f resume || true
-            docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
+  needs: build-and-scan
+  runs-on: ubuntu-latest
+  steps:
+    - name: SSH to Server and deploy
+      uses: appleboy/ssh-action@v1
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        envs: |
+          AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION=${{ vars.AWS_REGION }}
+          IMAGE_TAG=${{ github.run_number }}
+        script: |
+          # --- Fallbacks ---
+          : "${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is not set}"
+          : "${AWS_REGION:?AWS_REGION is not set}"
+          : "${IMAGE_TAG:?IMAGE_TAG is not set}"
+
+          # Show variables for debugging
+          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID"
+          echo "AWS_REGION=$AWS_REGION"
+          echo "IMAGE_TAG=$IMAGE_TAG"
+
+          # Construct ECR image URI
+          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/portfolio"
+          echo "Using image: $IMAGE_URI:$IMAGE_TAG"
+
+          # Login to ECR
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+          # Pull the Docker image
+          docker pull "$IMAGE_URI:$IMAGE_TAG"
+
+          # Stop/remove old container if exists
+          docker rm -f resume || true
+
+          # Run the new container
+          docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
