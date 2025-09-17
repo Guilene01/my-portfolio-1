@@ -27,14 +27,14 @@ jobs:
 
       - name: Build Docker Image
         run: |
-          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+          IMAGE_URI="${{ secrets.IMAGE_URI}}"
           IMAGE_TAG="${{ github.run_number }}"
           docker build -t $IMAGE_URI:$IMAGE_TAG .
 
       - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: "977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio:${{ github.run_number }}"
+          image-ref: "${{ secrets.IMAGE_URI}}:${{ github.run_number }}"
           format: 'table'
           exit-code: '0'
           vuln-type: 'os,library'
@@ -43,7 +43,7 @@ jobs:
 
       - name: Push Docker Image to ECR
         run: |
-          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+          IMAGE_URI="${{ secrets.IMAGE_URI}}"
           IMAGE_TAG="${{ github.run_number }}"
           docker push $IMAGE_URI:$IMAGE_TAG
           docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
@@ -61,7 +61,7 @@ jobs:
           key: ${{ secrets.KEY }}
           script: |
             # Set image URI and tag directly
-            IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+            IMAGE_URI="${{ secrets.IMAGE_URI}}"
             IMAGE_TAG="${{ github.run_number }}"
             AWS_REGION="${{ vars.AWS_REGION }}"
 
