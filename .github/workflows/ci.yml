@@ -1,34 +1,91 @@
-deploy:
-  needs: build-and-scan
-  runs-on: ubuntu-latest
-  steps:
-    - name: SSH to Server and deploy
-      uses: appleboy/ssh-action@v1
-      env:
-        IMAGE_URI: ${{ needs.build-and-scan.outputs.image_uri }}
-        IMAGE_TAG: ${{ github.run_number }}
-        AWS_REGION: ${{ vars.AWS_REGION }}
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.KEY }}
-        envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
-        script: |
-          # --- Fallbacks ---
-          : "${IMAGE_URI:?IMAGE_URI is not set}"
-          : "${IMAGE_TAG:?IMAGE_TAG is not set}"
-          : "${AWS_REGION:?AWS_REGION is not set}"
+name: CI/CD Pipeline
 
-          echo "Using image: $IMAGE_URI:$IMAGE_TAG"
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
 
-          # Login to ECR
-          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image_uri: ${{ steps.set-image-uri.outputs.image_uri }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-          # Pull the Docker image
-          docker pull "$IMAGE_URI:$IMAGE_TAG"
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
 
-          # Stop/remove old container if exists
-          docker rm -f resume || true
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-          # Run the new container
-          docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
+      - name: Set IMAGE_URI
+        id: set-image-uri
+        run: |
+          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ env.IMAGE_URI }}:${{ github.run_number }} .
+
+      - name: Scan local image with Trivy
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ env.IMAGE_URI }}:${{ github.run_number }}
+          format: 'table'
+          exit-code: '0'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Push Docker Image to ECR
+        run: |
+          docker push ${{ env.IMAGE_URI }}:${{ github.run_number }}
+          docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
+          docker push ${{ env.IMAGE_URI }}:latest
+
+  deploy:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to Server and deploy
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_URI: ${{ needs.build-and-scan.outputs.image_uri }}
+          IMAGE_TAG: ${{ github.run_number }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
+          script: |
+            # --- Fallbacks ---
+            : "${IMAGE_URI:?IMAGE_URI is not set}"
+            : "${IMAGE_TAG:?IMAGE_TAG is not set}"
+            : "${AWS_REGION:?AWS_REGION is not set}"
+
+            echo "Using image: $IMAGE_URI:$IMAGE_TAG"
+
+            # Login to ECR
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
+
+            # Pull the Docker image
+            docker pull "$IMAGE_URI:$IMAGE_TAG"
+
+            # Stop/remove old container if exists
+            docker rm -f resume || true
+
+            # Run the new container
+            docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
