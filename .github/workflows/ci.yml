@@ -12,8 +12,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    outputs:
-      image_uri: ${{ steps.set-image-uri.outputs.image_uri }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,26 +23,18 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Set IMAGE_URI
-        id: set-image-uri
-        run: |
-          # Hardcode your ECR registry if login-ecr output is empty
-          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
-          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
-          echo "IMAGE_URI is set to $IMAGE_URI"
 
       - name: Build Docker Image
         run: |
-          docker build -t ${{ env.IMAGE_URI }}:${{ github.run_number }} .
+          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+          IMAGE_TAG="${{ github.run_number }}"
+          docker build -t $IMAGE_URI:$IMAGE_TAG .
 
       - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: ${{ env.IMAGE_URI }}:${{ github.run_number }}
+          image-ref: "977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio:${{ github.run_number }}"
           format: 'table'
           exit-code: '0'
           vuln-type: 'os,library'
@@ -53,9 +43,11 @@ jobs:
 
       - name: Push Docker Image to ECR
         run: |
-          docker push ${{ env.IMAGE_URI }}:${{ github.run_number }}
-          docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
-          docker push ${{ env.IMAGE_URI }}:latest
+          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+          IMAGE_TAG="${{ github.run_number }}"
+          docker push $IMAGE_URI:$IMAGE_TAG
+          docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
+          docker push $IMAGE_URI:latest
 
   deploy:
     needs: build-and-scan
@@ -68,13 +60,14 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
           script: |
-            export IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
-            export IMAGE_TAG="${{ github.run_number }}"
-            export AWS_REGION="${{ vars.AWS_REGION }}"
+            # Set image URI and tag directly
+            IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
+            IMAGE_TAG="${{ github.run_number }}"
+            AWS_REGION="${{ vars.AWS_REGION }}"
 
             echo "Using image: $IMAGE_URI:$IMAGE_TAG"
 
-            # Login to ECR on remote host (host already has AWS credentials)
+            # Login to ECR on the remote host (host already has AWS credentials)
             aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
 
             # Pull the Docker image
