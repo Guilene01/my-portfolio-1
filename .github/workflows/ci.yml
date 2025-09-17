@@ -12,6 +12,8 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    outputs:
+      image_uri: ${{ steps.set-image-uri.outputs.image_uri }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,11 +28,16 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Build Docker Image
+      - name: Set IMAGE_URI
+        id: set-image-uri
         run: |
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
-          docker build -t $IMAGE_URI:${{ github.run_number }} .
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ env.IMAGE_URI }}:${{ github.run_number }} .
 
       - name: Scan local image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
@@ -49,42 +56,43 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:latest
 
   deploy:
-  needs: build-and-scan
-  runs-on: ubuntu-latest
-  steps:
-    - name: SSH to Server and deploy
-      uses: appleboy/ssh-action@v1
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.KEY }}
-        envs: |
-          AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
-          AWS_REGION=${{ vars.AWS_REGION }}
-          IMAGE_TAG=${{ github.run_number }}
-        script: |
-          # --- Fallbacks ---
-          : "${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID is not set}"
-          : "${AWS_REGION:?AWS_REGION is not set}"
-          : "${IMAGE_TAG:?IMAGE_TAG is not set}"
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to Server and deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          envs: |
+            IMAGE_URI=${{ needs.build-and-scan.outputs.image_uri }}
+            IMAGE_TAG=${{ github.run_number }}
+            AWS_REGION=${{ vars.AWS_REGION }}
+          script: |
+            # --- Fallbacks ---
+            : "${IMAGE_URI:?IMAGE_URI is not set}"
+            : "${IMAGE_TAG:?IMAGE_TAG is not set}"
+            : "${AWS_REGION:?AWS_REGION is not set}"
 
-          # Show variables for debugging
-          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID"
-          echo "AWS_REGION=$AWS_REGION"
-          echo "IMAGE_TAG=$IMAGE_TAG"
+            echo "Using image: $IMAGE_URI:$IMAGE_TAG"
 
-          # Construct ECR image URI
-          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/portfolio"
-          echo "Using image: $IMAGE_URI:$IMAGE_TAG"
+            # Ensure AWS CLI is installed
+            if ! command -v aws &> /dev/null; then
+              echo "AWS CLI not found, installing..."
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              sudo ./aws/install
+            fi
 
-          # Login to ECR
-          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+            # Login to ECR
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
 
-          # Pull the Docker image
-          docker pull "$IMAGE_URI:$IMAGE_TAG"
+            # Pull the Docker image
+            docker pull "$IMAGE_URI:$IMAGE_TAG"
 
-          # Stop/remove old container if exists
-          docker rm -f resume || true
+            # Stop/remove old container if exists
+            docker rm -f resume || true
 
-          # Run the new container
-          docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
+            # Run the new container
+            docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
