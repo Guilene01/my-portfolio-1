@@ -56,16 +56,16 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:latest
 
   deploy:
-  needs: build-and-scan
-  runs-on: ubuntu-latest
-  steps:
-    - name: SSH to Server and deploy
-      uses: appleboy/ssh-action@v1
-      with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.KEY }}
-        envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH to Server and deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
         script: |
           IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
           IMAGE_TAG="${{ github.run_number }}"
