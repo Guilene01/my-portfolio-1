@@ -56,36 +56,37 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:latest
 
   deploy:
-    needs: build-and-scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: SSH to Server and deploy
-        uses: appleboy/ssh-action@v1
-        env:
-          IMAGE_URI: ${{ needs.build-and-scan.outputs.image_uri }}
-          IMAGE_TAG: ${{ github.run_number }}
-          AWS_REGION: ${{ vars.AWS_REGION }}
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.KEY }}
-          envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
-          script: |
-            # --- Fallbacks ---
-            : "${IMAGE_URI:?IMAGE_URI is not set}"
-            : "${IMAGE_TAG:?IMAGE_TAG is not set}"
-            : "${AWS_REGION:?AWS_REGION is not set}"
+  needs: build-and-scan
+  runs-on: ubuntu-latest
+  steps:
+    - name: SSH to Server and deploy
+      uses: appleboy/ssh-action@v1
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
+        script: |
+          IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
+          IMAGE_TAG="${{ github.run_number }}"
+          AWS_REGION="${{ vars.AWS_REGION }}"
 
-            echo "Using image: $IMAGE_URI:$IMAGE_TAG"
+          # --- Fallbacks ---
+          : "${IMAGE_URI:?IMAGE_URI is not set}"
+          : "${IMAGE_TAG:?IMAGE_TAG is not set}"
+          : "${AWS_REGION:?AWS_REGION is not set}"
 
-            # Login to ECR
-            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
+          echo "Using image: $IMAGE_URI:$IMAGE_TAG"
 
-            # Pull the Docker image
-            docker pull "$IMAGE_URI:$IMAGE_TAG"
+          # Login to ECR
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
 
-            # Stop/remove old container if exists
-            docker rm -f resume || true
+          # Pull the Docker image
+          docker pull "$IMAGE_URI:$IMAGE_TAG"
 
-            # Run the new container
-            docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
+          # Stop/remove old container if exists
+          docker rm -f resume || true
+
+          # Run the new container
+          docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
+
