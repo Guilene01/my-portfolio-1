@@ -31,9 +31,11 @@ jobs:
       - name: Set IMAGE_URI
         id: set-image-uri
         run: |
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/portfolio"
+          # Hardcode your ECR registry if login-ecr output is empty
+          IMAGE_URI="977098999802.dkr.ecr.us-east-1.amazonaws.com/portfolio"
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "IMAGE_URI is set to $IMAGE_URI"
 
       - name: Build Docker Image
         run: |
@@ -54,9 +56,6 @@ jobs:
           docker push ${{ env.IMAGE_URI }}:${{ github.run_number }}
           docker tag ${{ env.IMAGE_URI }}:${{ github.run_number }} ${{ env.IMAGE_URI }}:latest
           docker push ${{ env.IMAGE_URI }}:latest
-      - name: Debug ECR login output
-        run: |
-          echo "Registry: ${{ steps.login-ecr.outputs.registry }}"
 
   deploy:
     needs: build-and-scan
@@ -69,14 +68,13 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
           script: |
-            # --- Set variables directly from runner ---
             export IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
             export IMAGE_TAG="${{ github.run_number }}"
             export AWS_REGION="${{ vars.AWS_REGION }}"
 
             echo "Using image: $IMAGE_URI:$IMAGE_TAG"
 
-            # Login to ECR
+            # Login to ECR on remote host (host already has AWS credentials)
             aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$(echo $IMAGE_URI | cut -d'/' -f1)"
 
             # Pull the Docker image
