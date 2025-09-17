@@ -65,16 +65,11 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
-          envs: IMAGE_URI,IMAGE_TAG,AWS_REGION
           script: |
-            IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
-            IMAGE_TAG="${{ github.run_number }}"
-            AWS_REGION="${{ vars.AWS_REGION }}"
-
-            # --- Fallbacks ---
-            : "${IMAGE_URI:?IMAGE_URI is not set}"
-            : "${IMAGE_TAG:?IMAGE_TAG is not set}"
-            : "${AWS_REGION:?AWS_REGION is not set}"
+            # --- Set variables directly from runner ---
+            export IMAGE_URI="${{ needs.build-and-scan.outputs.image_uri }}"
+            export IMAGE_TAG="${{ github.run_number }}"
+            export AWS_REGION="${{ vars.AWS_REGION }}"
 
             echo "Using image: $IMAGE_URI:$IMAGE_TAG"
 
@@ -89,4 +84,3 @@ jobs:
 
             # Run the new container
             docker run -d --name resume -p 8080:5001 "$IMAGE_URI:$IMAGE_TAG"
-            echo "Deployed successfully!"
